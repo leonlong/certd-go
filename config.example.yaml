@@ -1,0 +1,48 @@
+certs:
+  - domain: "example.com"
+    alt_names:
+      - "www.example.com"
+      - "api.example.com"
+    provider: "letsencrypt"
+    email: "admin@example.com"
+    dns_provider: "cloudflare"
+    challenge: "dns-01"
+
+  - domain: "app.example.org"
+    provider: "ra"
+    api_key: "${RA_API_KEY}"
+    api_secret: "${RA_API_SECRET}"
+
+  - domain: "secure.example.net"
+    provider: "trustasia"
+    api_key: "${TRUSTASIA_API_KEY}"
+    api_secret: "${TRUSTASIA_API_SECRET}"
+
+  - domain: "corp.example.com"
+    provider: "globalsign"
+    api_key: "${GLOBALSIGN_API_KEY}"
+    api_secret: "${GLOBALSIGN_API_SECRET}"
+
+storage:
+  type: "file"
+  path: "./certs"
+
+letsencrypt:
+  environment: "production"
+  eab_kid: "${LE_EAB_KID}"
+  eab_hmac_key: "${LE_EAB_HMAC_KEY}"
+
+dns_providers:
+  aliyun:
+    access_key: "${ALIYUN_ACCESS_KEY}"
+    secret_key: "${ALIYUN_SECRET_KEY}"
+  
+  tencent:
+    secret_id: "${TENCENT_SECRET_ID}"
+    secret_key: "${TENCENT_SECRET_KEY}"
+  
+  dnspod:
+    login_token: "${DNSPOD_LOGIN_TOKEN}"
+  
+  cloudflare:
+    api_token: "${CLOUDFLARE_API_TOKEN}"

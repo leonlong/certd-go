@@ -1,0 +1,31 @@
+certs:
+  - domain: "example.com"
+    alt_names:
+      - "www.example.com"
+    provider: "letsencrypt"
+    challenge: "http-01"
+    email: "admin@example.com"
+
+  - domain: "app.example.org"
+    provider: "ra"
+    api_key: "${RA_API_KEY}"
+    api_secret: "${RA_API_SECRET}"
+
+  - domain: "secure.example.net"
+    provider: "trustasia"
+    api_key: "${TRUSTASIA_API_KEY}"
+    api_secret: "${TRUSTASIA_API_SECRET}"
+
+  - domain: "corp.example.com"
+    provider: "globalsign"
+    api_key: "${GLOBALSIGN_API_KEY}"
+    api_secret: "${GLOBALSIGN_API_SECRET}"
+
+storage:
+  type: "file"
+  path: "./certs"
+
+letsencrypt:
+  environment: "production"
+  eab_kid: "${LE_EAB_KID}"
+  eab_hmac_key: "${LE_EAB_HMAC_KEY}"

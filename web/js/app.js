@@ -72,6 +72,10 @@ function getStatusText(status) {
     return { valid: '有效', expiring: '即将过期', expired: '已过期' }[status] || status;
 }
 
+function getCertTypeText(type_) {
+    return { dv: 'DV (域名验证)', ov: 'OV (企业验证)', ev: 'EV (扩展验证)' }[type_] || type_;
+}
+
 function showAddForm() {
     currentCertId = null;
     document.getElementById('contentTitle').textContent = '添加证书';
@@ -102,76 +106,6 @@ function updateFormVisibility() {
 }
 
 document.getElementById('provider').addEventListener('change', updateFormVisibility);
-
-document.getElementById('certForm').addEventListener('submit', async (e) => {
-    e.preventDefault();
-
-    const domain = document.getElementById('domain').value.trim();
-    const certType = document.getElementById('certType').value;
-    let altNames = document.getElementById('altNames').value
-        .split(',')
-        .map(s => s.trim())
-        .filter(Boolean);
-
-    if (!domain) {
-        showToast('请输入域名', 'error');
-        return;
-    }
-
-    if (certType === 'wildcard') {
-        if (!domain.startsWith('*.')) {
-            showToast('通配符域名必须以 *. 开头', 'error');
-            return;
-        }
-        const rootDomain = domain.substring(2);
-        if (!altNames.includes(rootDomain)) {
-            altNames = [rootDomain, ...altNames];
-        }
-    }
-    try {
-        const cert = await api('GET', '/' + encodeURIComponent(id));
-        if (!cert) return;
-
-        currentCertId = cert.id || cert.Domain;
-
-        document.querySelectorAll('.cert-item').forEach(el => {
-            el.classList.toggle('active', el.onclick.toString().includes(id));
-        });
-
-        document.getElementById('contentTitle').textContent = '证书详情';
-        document.getElementById('addForm').classList.add('hidden');
-        document.getElementById('detailView').classList.remove('hidden');
-
-        const notBefore = new Date(cert.NotBefore || cert.notBefore);
-        const notAfter = new Date(cert.NotAfter || cert.notAfter);
-        const days = cert.ValidDays ? cert.ValidDays() : getValidDays(cert);
-        const status = cert.Status ? cert.Status() : getStatus(cert);
-
-        document.getElementById('detailDomain').textContent = cert.Domain;
-        document.getElementById('detailStatus').textContent = getStatusText(status);
-        document.getElementById('detailStatus').className = 'badge ' + status;
-        document.getElementById('detailValidity').textContent =
-            `${formatDate(notBefore)} ~ ${formatDate(notAfter)} (${days}天)`;
-        document.getElementById('detailNotBefore').textContent = formatDate(notBefore);
-        document.getElementById('detailNotAfter').textContent = formatDate(notAfter);
-        document.getElementById('detailProvider').textContent = cert.Provider || cert.Issuer || '-';
-        document.getElementById('detailDNSProvider').textContent = cert.DNSProvider || '-';
-        document.getElementById('detailCertType').textContent = (cert.CertType || 'DV').toUpperCase();
-        document.getElementById('detailSerial').textContent = cert.SerialNum || '-';
-        document.getElementById('detailFingerprint').textContent = cert.Fingerprint || '-';
-        document.getElementById('editProject').value = cert.Project || '';
-        document.getElementById('editOwner').value = cert.Owner || '';
-        document.getElementById('editNotes').value = cert.Notes || '';
-
-    } catch (e) {
-        showToast('加载失败: ' + e.message, 'error');
-    }
-}
-
-function formatDate(d) {
-    if (typeof d === 'string') d = new Date(d);
-    return d.toLocaleDateString('zh-CN');
-}
 
 document.getElementById('certForm').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -214,6 +148,52 @@ document.getElementById('certForm').addEventListener('submit', async (e) => {
         btn.textContent = '生成证书';
     }
 });
+
+async function showDetail(id) {
+    try {
+        const cert = await api('GET', '/' + encodeURIComponent(id));
+        if (!cert) return;
+
+        currentCertId = cert.id || cert.Domain;
+
+        document.querySelectorAll('.cert-item').forEach(el => {
+            el.classList.toggle('active', el.onclick.toString().includes(id));
+        });
+
+        document.getElementById('contentTitle').textContent = '证书详情';
+        document.getElementById('addForm').classList.add('hidden');
+        document.getElementById('detailView').classList.remove('hidden');
+
+        const notBefore = new Date(cert.NotBefore || cert.notBefore);
+        const notAfter = new Date(cert.NotAfter || cert.notAfter);
+        const days = cert.ValidDays ? cert.ValidDays() : getValidDays(cert);
+        const status = cert.Status ? cert.Status() : getStatus(cert);
+
+        document.getElementById('detailDomain').textContent = cert.Domain;
+        document.getElementById('detailStatus').textContent = getStatusText(status);
+        document.getElementById('detailStatus').className = 'badge ' + status;
+        document.getElementById('detailValidity').textContent =
+            `${formatDate(notBefore)} ~ ${formatDate(notAfter)} (${days}天)`;
+        document.getElementById('detailNotBefore').textContent = formatDate(notBefore);
+        document.getElementById('detailNotAfter').textContent = formatDate(notAfter);
+        document.getElementById('detailProvider').textContent = cert.Provider || cert.Issuer || '-';
+        document.getElementById('detailDNSProvider').textContent = cert.DNSProvider || '-';
+        document.getElementById('detailCertType').textContent = getCertTypeText(cert.CertType);
+        document.getElementById('detailSerial').textContent = cert.SerialNum || '-';
+        document.getElementById('detailFingerprint').textContent = cert.Fingerprint || '-';
+        document.getElementById('editProject').value = cert.Project || '';
+        document.getElementById('editOwner').value = cert.Owner || '';
+        document.getElementById('editNotes').value = cert.Notes || '';
+
+    } catch (e) {
+        showToast('加载失败: ' + e.message, 'error');
+    }
+}
+
+function formatDate(d) {
+    if (typeof d === 'string') d = new Date(d);
+    return d.toLocaleDateString('zh-CN');
+}
 
 async function saveCert() {
     if (!currentCertId) return;

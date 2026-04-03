@@ -1,12 +1,9 @@
 package storage
 
 import (
-	"crypto/tls"
-	"encoding/pem"
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 )
 
 type FileStorage struct {
@@ -14,6 +11,9 @@ type FileStorage struct {
 }
 
 func NewFileStorage(path string) *FileStorage {
+	if path == "" {
+		path = "./certs"
+	}
 	return &FileStorage{basePath: path}
 }
 

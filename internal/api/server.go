@@ -4,6 +4,7 @@ import (
 	"certd-go/internal/models"
 	"certd-go/internal/store"
 	"certd-go/pkg/acme"
+	"certd-go/pkg/certchain"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -15,20 +16,28 @@ import (
 	"path/filepath"
 )
 
-type Server struct {
-	store   *store.Store
-	certDir string
-	mux     *http.ServeMux
-}
+func NewServer(s *store.Store, certDir, appDir string) *Server {
+	webRoot := filepath.Join(appDir, "web")
 
-func NewServer(s *store.Store, certDir string) *Server {
 	srv := &Server{
 		store:   s,
 		certDir: certDir,
 		mux:     http.NewServeMux(),
+		webRoot: webRoot,
 	}
 	srv.routes()
 	return srv
+}
+
+type Server struct {
+	store   *store.Store
+	certDir string
+	mux     *http.ServeMux
+	webRoot string
+}
+
+func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.mux.ServeHTTP(w, r)
 }
 
 func (s *Server) routes() {
@@ -38,22 +47,20 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PUT /api/certs/{id}", s.updateCert)
 	s.mux.HandleFunc("DELETE /api/certs/{id}", s.deleteCert)
 	s.mux.HandleFunc("GET /api/certs/{id}/download", s.downloadCert)
+	s.mux.HandleFunc("POST /api/certs/{id}/rebuild-chain", s.rebuildCertChain)
 
-	s.mux.HandleFunc("GET /", s.serveIndex)
-	s.mux.Handle("/css/", http.StripPrefix("/css/", http.FileServer(http.Dir("web/css"))))
-	s.mux.Handle("/js/", http.StripPrefix("/js/", http.FileServer(http.Dir("web/js"))))
-}
-
-func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	s.mux.ServeHTTP(w, r)
+	s.mux.HandleFunc("/", s.serveIndex)
+	s.mux.Handle("/css/", http.StripPrefix("/css/", http.FileServer(http.Dir(filepath.Join(s.webRoot, "css")))))
+	s.mux.Handle("/js/", http.StripPrefix("/js/", http.FileServer(http.Dir(filepath.Join(s.webRoot, "js")))))
 }
 
 func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
+	fmt.Printf("serveIndex called: path=%s webRoot=%s\n", r.URL.Path, s.webRoot)
 	if r.URL.Path != "/" {
 		http.NotFound(w, r)
 		return
 	}
-	http.ServeFile(w, r, "web/index.html")
+	http.ServeFile(w, r, filepath.Join(s.webRoot, "index.html"))
 }
 
 func (s *Server) listCerts(w http.ResponseWriter, r *http.Request) {
@@ -181,6 +188,19 @@ func (s *Server) saveCertFiles(id string, certPEM, keyPEM []byte) error {
 	if err := os.WriteFile(filepath.Join(domainPath, "key.pem"), keyPEM, 0600); err != nil {
 		return err
 	}
+
+	chainBuilder := certchain.NewChainBuilder()
+	fullChain, err := chainBuilder.BuildFullChain(certPEM)
+	if err != nil {
+		fmt.Printf("Warning: Failed to build certificate chain: %v\n", err)
+	} else {
+		if err := os.WriteFile(filepath.Join(domainPath, "fullchain.pem"), fullChain, 0644); err != nil {
+			fmt.Printf("Warning: Failed to save full chain: %v\n", err)
+		} else {
+			fmt.Printf("Successfully built and saved full certificate chain for %s\n", id)
+		}
+	}
+
 	return nil
 }
 
@@ -266,10 +286,66 @@ func (s *Server) downloadCert(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	fullChainPEM, err := os.ReadFile(filepath.Join(s.certDir, id, "fullchain.pem"))
+	if err != nil {
+		chainBuilder := certchain.NewChainBuilder()
+		fullChainPEM, err = chainBuilder.BuildFullChain(certPEM)
+		if err != nil {
+			fmt.Printf("Warning: Failed to build chain for download: %v\n", err)
+			fullChainPEM = certPEM
+		}
+	}
+
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s.tar", id))
 	w.Header().Set("Content-Type", "application/octet-stream")
 
-	fmt.Fprintf(w, "Certificate: %s\nKey: %s\n", certPEM, keyPEM)
+	fmt.Fprintf(w, "Certificate: %s\nKey: %s\nFullChain: %s\n", certPEM, keyPEM, fullChainPEM)
+}
+
+func (s *Server) rebuildCertChain(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	id, _ = url.QueryUnescape(id)
+
+	cert, err := s.store.Get(id)
+	if err != nil || cert == nil {
+		http.Error(w, "not found", 404)
+		return
+	}
+
+	certPEM, err := os.ReadFile(filepath.Join(s.certDir, id, "cert.pem"))
+	if err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	chainBuilder := certchain.NewChainBuilder()
+
+	chainInfo, err := chainBuilder.GetChainInfo(certPEM)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to get chain info: %v", err), 500)
+		return
+	}
+
+	fullChain, err := chainBuilder.BuildFullChain(certPEM)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to build chain: %v", err), 500)
+		return
+	}
+
+	if err := os.WriteFile(filepath.Join(s.certDir, id, "fullchain.pem"), fullChain, 0644); err != nil {
+		http.Error(w, err.Error(), 500)
+		return
+	}
+
+	response := map[string]interface{}{
+		"message":   "Certificate chain rebuilt successfully",
+		"cert_id":   id,
+		"chain_len": len(chainInfo),
+		"chain":     chainInfo,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 func generateToken() string {
